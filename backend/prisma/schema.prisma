@@ -1,0 +1,218 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+}
+
+enum SessionStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  REFUND
+  SESSION_PAYMENT
+  ORDER_PAYMENT
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String
+  firstName     String
+  lastName      String
+  phone         String?
+  role          UserRole  @default(CUSTOMER)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  wallet        Wallet?
+  sessions      Session[]
+  orders        Order[]
+  
+  @@map("users")
+}
+
+model Wallet {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  balance       Int           @default(0) // in cents
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+  
+  @@map("wallets")
+}
+
+model Transaction {
+  id              String            @id @default(uuid())
+  walletId        String
+  type            TransactionType
+  amount          Int               // in cents (positive for deposits, negative for withdrawals)
+  balanceBefore   Int
+  balanceAfter    Int
+  description     String?
+  stripePaymentId String?
+  createdAt       DateTime          @default(now())
+
+  // Relations
+  wallet          Wallet            @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  
+  @@map("transactions")
+  @@index([walletId])
+  @@index([createdAt])
+}
+
+model Room {
+  id              String      @id @default(uuid())
+  roomNumber      String      @unique
+  name            String
+  description     String?
+  status          RoomStatus  @default(AVAILABLE)
+  pricePerMinute  Int         // in cents
+  consoleType     String      // e.g., "PS5", "PS4 Pro"
+  capacity        Int         @default(1) // max number of people
+  qrCode          String      @unique
+  imageUrl        String?
+  amenities       String[]    // e.g., ["4K TV", "Surround Sound", "AC"]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  sessions        Session[]
+  orders          Order[]
+  
+  @@map("rooms")
+  @@index([status])
+}
+
+model Session {
+  id              String        @id @default(uuid())
+  userId          String
+  roomId          String
+  status          SessionStatus @default(ACTIVE)
+  startTime       DateTime      @default(now())
+  endTime         DateTime?
+  duration        Int?          // in minutes
+  costPerMinute   Int           // in cents (snapshot of room price)
+  totalCost       Int           @default(0) // in cents
+  isPaid          Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room            Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
+  @@map("sessions")
+  @@index([userId])
+  @@index([roomId])
+  @@index([status])
+  @@index([startTime])
+}
+
+model MenuItem {
+  id              String      @id @default(uuid())
+  name            String
+  description     String?
+  price           Int         // in cents
+  category        String      // e.g., "Drinks", "Snacks", "Meals"
+  imageUrl        String?
+  isAvailable     Boolean     @default(true)
+  preparationTime Int         @default(10) // in minutes
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  orderItems      OrderItem[]
+  
+  @@map("menu_items")
+  @@index([category])
+  @@index([isAvailable])
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  userId          String
+  roomId          String?     // null if order is for pickup
+  status          OrderStatus @default(PENDING)
+  totalAmount     Int         // in cents
+  notes           String?
+  isPaid          Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room            Room?       @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  items           OrderItem[]
+  
+  @@map("orders")
+  @@index([userId])
+  @@index([roomId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id              String      @id @default(uuid())
+  orderId         String
+  menuItemId      String
+  quantity        Int
+  priceAtOrder    Int         // in cents (snapshot of item price)
+  
+  // Relations
+  order           Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem        MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  
+  @@map("order_items")
+  @@index([orderId])
+}
+
+model Payment {
+  id                String    @id @default(uuid())
+  userId            String
+  amount            Int       // in cents
+  stripePaymentId   String    @unique
+  stripeCustomerId  String?
+  status            String    // succeeded, pending, failed
+  type              String    // wallet_deposit, session_payment, order_payment
+  metadata          Json?
+  createdAt         DateTime  @default(now())
+  
+  @@map("payments")
+  @@index([userId])
+  @@index([createdAt])
+}
