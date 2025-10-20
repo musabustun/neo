@@ -145,7 +145,7 @@ model Session {
 
 model MenuItem {
   id              String      @id @default(uuid())
-  name            String
+  name            String      @unique
   description     String?
   price           Int         // in cents
   category        String      // e.g., "Drinks", "Snacks", "Meals"
